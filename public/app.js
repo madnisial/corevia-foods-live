@@ -1,0 +1,330 @@
+window.addEventListener('load', () => {
+    const loader = document.getElementById('loader-wrapper');
+    if(loader) {
+        loader.style.opacity = '0';
+        setTimeout(() => { loader.style.display = 'none'; }, 600);
+    }
+});
+
+document.addEventListener("DOMContentLoaded", () => {
+    fetchMenu();
+    fetchOrders(); 
+    setInterval(fetchOrders, 3000); 
+    reveal();
+});
+
+function reveal() {
+    document.querySelectorAll(".reveal").forEach(el => {
+        if (el.getBoundingClientRect().top < window.innerHeight - 50) el.classList.add("active");
+    });
+}
+window.addEventListener("scroll", reveal);
+
+function toggleMobileMenu() {
+    const menu = document.getElementById('mobile-menu');
+    menu.style.display = (menu.style.display === 'flex') ? 'none' : 'flex';
+}
+
+function toggleNotifPanel() {
+    const panel = document.getElementById('notif-panel');
+    panel.style.display = (panel.style.display === 'block') ? 'none' : 'block';
+}
+
+let orders = []; 
+let dbMenu = [];
+let curFulfillment = 'Pick';
+let curItem = '';
+let curPrice = 0;
+
+// --- MENU LOGIC ---
+async function fetchMenu() {
+    try {
+        const res = await fetch('/api/menu');
+        dbMenu = await res.json();
+        renderWebsiteMenu();
+        renderAdminMenu();
+    } catch(e) { console.log("Menu Error"); }
+}
+
+function renderWebsiteMenu() {
+    const container = document.getElementById('menu-grid');
+    if(!container) return;
+    container.innerHTML = dbMenu.filter(m => m.available).map(m => `
+        <div class="menu-item-card reveal bg-slate-50 p-5 rounded-[2.5rem] border border-slate-100 flex flex-col active">
+            <img src="${m.image}" class="w-full h-48 object-cover rounded-2xl mb-4">
+            <h3 class="font-bold text-xl">${m.name}</h3>
+            <p class="text-slate-500 text-sm mb-4 flex-grow">${m.desc}</p>
+            <div class="flex justify-between items-center">
+                <span class="text-orange-600 font-bold text-lg">Rs. ${m.price}</span>
+                <button onclick="openOrderModal('${m.name}', ${m.price})" class="bg-white border border-slate-200 py-2 px-6 rounded-xl text-sm font-bold hover:bg-orange-600 hover:text-white transition-all">Add</button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function renderAdminMenu() {
+    const list = document.getElementById('admin-menu-list');
+    if(!list) return;
+    list.innerHTML = dbMenu.map(m => `
+        <tr class="border-b border-slate-50 hover:bg-slate-50 transition-all">
+            <td class="py-4 font-bold text-slate-800">${m.name}</td>
+            <td class="py-4 text-slate-500">${m.category}</td>
+            <td class="py-4 font-black">Rs. ${m.price}</td>
+            <td class="py-4">
+                <span class="cursor-pointer px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest border ${m.available ? 'bg-green-50 text-green-600 border-green-200' : 'bg-red-50 text-red-600 border-red-200'}" onclick="toggleAvailability('${m.id}', ${!m.available})">${m.available ? 'In Stock' : 'Out of Stock'}</span>
+            </td>
+            <td class="py-4 text-left">
+                <button onclick="deleteMenuItem('${m.id}')" class="w-8 h-8 bg-slate-100 text-red-500 rounded-lg hover:bg-red-500 hover:text-white transition-all"><i class="fa-solid fa-trash"></i></button>
+            </td>
+        </tr>
+    `).reverse().join('');
+}
+
+async function saveMenuItem() {
+    const name = document.getElementById('m-name').value;
+    const cat = document.getElementById('m-cat').value;
+    const price = parseInt(document.getElementById('m-price').value);
+    const img = document.getElementById('m-img').value || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?q=80&w=400';
+    const desc = document.getElementById('m-desc').value || 'Delicious food item.';
+
+    if(!name || !price) return alert("Name aur Price lazmi hain!");
+    const newItem = { id: 'm' + Date.now(), name, category: cat, price, image: img, desc, available: true };
+    await fetch('/api/menu', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newItem) });
+    closeModal('add-menu-modal');
+    document.querySelectorAll('#add-menu-modal input, #add-menu-modal textarea').forEach(i => i.value = '');
+    fetchMenu();
+}
+
+async function deleteMenuItem(id) {
+    if(confirm("Yeh item delete ho jayega. Confirm?")) {
+        await fetch(`/api/menu/${id}`, { method: 'DELETE' });
+        fetchMenu();
+    }
+}
+
+async function toggleAvailability(id, state) {
+    await fetch(`/api/menu/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({available: state}) });
+    fetchMenu();
+}
+
+// --- ORDERS LOGIC ---
+async function fetchOrders() {
+    try {
+        const res = await fetch('/api/orders');
+        const data = await res.json();
+        if (Array.isArray(data)) orders = data;
+        updateKitchenUI(); updateAdminUI(); updateNotifUI();
+    } catch(err) { console.log("DB Load Error"); }
+}
+
+function openOrderModal(name, price) {
+    curItem = name; curPrice = price;
+    openModal('order-modal'); selectOption('Pick');
+}
+
+function selectOption(opt) {
+    curFulfillment = opt;
+    document.querySelectorAll('.option-btn').forEach(b => b.classList.remove('border-orange-500', 'bg-orange-50'));
+    document.getElementById('btn-' + opt.toLowerCase()).classList.add('border-orange-500', 'bg-orange-50');
+    
+    const extra = document.getElementById('extra-fields');
+    if(opt === 'Table') extra.innerHTML = `<input type="number" id="f-table" placeholder="Table No (e.g. 5)" class="w-full p-4 bg-slate-100 rounded-2xl outline-none font-bold text-center border-2 border-slate-200 focus:border-orange-500">`;
+    else if(opt === 'Delivery') extra.innerHTML = `<input type="text" id="f-name" placeholder="Name" class="w-full p-4 bg-slate-100 rounded-2xl outline-none font-bold mb-3"><input type="tel" id="f-phone" placeholder="Phone" class="w-full p-4 bg-slate-100 rounded-2xl outline-none font-bold mb-3"><textarea id="f-addr" placeholder="Address" class="w-full p-4 bg-slate-100 rounded-2xl outline-none font-bold"></textarea>`;
+    else extra.innerHTML = ''; 
+}
+
+async function confirmOrder() {
+    let details = "Self Pickup";
+    if(curFulfillment === 'Table') {
+        const t = document.getElementById('f-table').value;
+        if(!t) return alert("Table Number lazmi hai!");
+        details = "Table: " + t;
+    } else if(curFulfillment === 'Delivery') {
+        const n = document.getElementById('f-name').value, p = document.getElementById('f-phone').value, a = document.getElementById('f-addr').value;
+        if(!n || !p || !a) return alert("Saari details bharein!");
+        details = `Delivery | ${n} - ${p} - ${a}`;
+    }
+    
+    const id = 'C-' + Math.floor(1000 + Math.random() * 9000);
+    const pay = document.getElementById('payment-method').value;
+    const order = { id, item: curItem, price: curPrice, fulfillment: curFulfillment, details, payment: pay, status: 'Preparing', delivered: false, date: new Date().toLocaleString() };
+    
+    try {
+        const response = await fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(order) });
+        if(response.ok) {
+            orders.push(order);
+            closeModal('order-modal');
+            updateKitchenUI(); updateAdminUI(); updateNotifUI();
+            await generateReceipt(order);
+        }
+    } catch (error) { alert("Connection Error."); }
+}
+
+// --- ADMIN LOGIC ---
+function switchAdminTab(tab) {
+    const tabs = ['analytics', 'orders', 'menu', 'customers'];
+    tabs.forEach(t => {
+        document.getElementById(`tab-${t}`).style.display = (t === tab) ? 'block' : 'none';
+        const btn = document.getElementById(`tab-btn-${t}`);
+        if(btn) btn.className = (t === tab) ? "w-full flex items-center gap-4 p-4 rounded-2xl bg-orange-600 text-white font-bold transition-all" : "w-full flex items-center gap-4 p-4 rounded-2xl text-slate-400 hover:bg-slate-800 hover:text-white font-bold transition-all";
+    });
+}
+
+function filterTable(tableId, val) {
+    document.querySelectorAll(`#${tableId} tr`).forEach(r => r.style.display = r.innerText.toLowerCase().includes(val.toLowerCase()) ? '' : 'none');
+}
+
+function updateAdminUI() {
+    const list = document.getElementById('admin-order-list');
+    const customerList = document.getElementById('admin-customer-list');
+    let rev = 0; let customersData = {};
+
+    orders.forEach(o => {
+        rev += o.price;
+        if(o.fulfillment === 'Delivery') {
+            let detailsParts = o.details.split(' | ')[1];
+            if(detailsParts) {
+                let [name, phone] = detailsParts.split(' - ');
+                if(name && phone) {
+                    if(!customersData[phone]) customersData[phone] = { name: name.trim(), spent: 0, orders: 0 };
+                    customersData[phone].spent += o.price;
+                    customersData[phone].orders += 1;
+                }
+            }
+        }
+    });
+    
+    document.getElementById('admin-revenue').innerText = "Rs. " + rev;
+    document.getElementById('admin-count').innerText = orders.length;
+    document.getElementById('admin-pending').innerText = orders.filter(o => !o.delivered).length;
+    
+    if(list) list.innerHTML = orders.map(o => {
+        let badge = o.delivered ? '<span class="bg-green-50 text-green-600 px-3 py-1 rounded-lg text-xs">Delivered</span>' : '<span class="bg-orange-50 text-orange-600 px-3 py-1 rounded-lg text-xs animate-pulse">Pending</span>';
+        return `<tr class="border-b border-slate-50"><td class="py-4 text-slate-400">#${o.id}</td><td class="py-4 font-black">${o.item}</td><td class="py-4 text-xs text-slate-500">${o.details}</td><td class="py-4 text-[10px] uppercase">${o.payment}</td><td class="py-4">${badge}</td><td class="py-4 font-black">Rs.${o.price}</td><td class="py-4"><button onclick='reprint("${o.id}")' class="text-slate-400 hover:text-orange-600"><i class="fa-solid fa-print"></i></button></td></tr>`;
+    }).reverse().join('');
+
+    if(customerList) {
+        if(Object.keys(customersData).length > 0) {
+            customerList.innerHTML = Object.keys(customersData).map(phone => {
+                let c = customersData[phone];
+                return `<tr class="border-b border-slate-50"><td class="py-4 font-bold">${c.name}</td><td class="py-4 text-slate-500">${phone}</td><td class="py-4 text-orange-600 font-black">${c.orders} Orders</td><td class="py-4 font-black">Rs. ${c.spent}</td></tr>`;
+            }).join('');
+        } else customerList.innerHTML = `<tr><td colspan="4" class="py-10 text-center text-slate-400">No delivery data yet.</td></tr>`;
+    }
+}
+
+async function generateReceipt(o) {
+    document.getElementById('r-date').innerText = o.date;
+    document.getElementById('r-id').innerText = "ORDER #" + o.id;
+    document.getElementById('r-item').innerText = o.item;
+    document.getElementById('r-price').innerText = "Rs. " + o.price;
+    document.getElementById('r-type').innerText = "Details: " + o.details;
+    document.getElementById('r-pay').innerText = "Payment: " + o.payment;
+    document.getElementById('r-total').innerText = "TOTAL: RS. " + o.price;
+    const tmp = document.getElementById('receipt-template');
+    tmp.style.display = 'block';
+    const canvas = await html2canvas(tmp);
+    const link = document.createElement('a');
+    link.download = `Receipt-${o.id}.png`; link.href = canvas.toDataURL(); link.click();
+    tmp.style.display = 'none';
+}
+function reprint(id) { const o = orders.find(x => x.id === id); if(o) generateReceipt(o); }
+
+// --- UPDATED MODERN KITCHEN LOGIC ---
+function updateKitchenUI() {
+    const d = document.getElementById('kitchen-display');
+    const stats = document.getElementById('kitchen-stats');
+    const active = orders.filter(o => !o.delivered);
+    
+    if(stats) stats.innerText = `${active.length} Pending`;
+
+    if(!active.length) { 
+        d.innerHTML = `
+            <div class="col-span-full h-64 flex flex-col items-center justify-center text-slate-500 border border-dashed border-slate-700 rounded-3xl bg-slate-800/20 backdrop-blur-sm">
+                <i class="fa-solid fa-mug-hot text-5xl mb-4 opacity-50"></i>
+                <p class="font-bold text-lg uppercase tracking-widest">Queue is Empty</p>
+            </div>`; 
+        return; 
+    }
+    
+    d.innerHTML = active.map(o => {
+        const isReady = o.status === 'Ready';
+        const statusColor = isReady ? 'emerald' : 'orange';
+        const glowClass = isReady ? 'shadow-[0_0_30px_rgba(16,185,129,0.15)] border-emerald-500/30' : 'shadow-[0_0_30px_rgba(249,115,22,0.1)] border-orange-500/30';
+
+        return `
+        <div class="bg-[#0f172a]/80 backdrop-blur-xl border border-slate-800 rounded-3xl p-6 flex flex-col hover:${glowClass} transition-all duration-300 relative overflow-hidden group">
+            <div class="absolute left-0 top-0 bottom-0 w-1.5 bg-${statusColor}-500"></div>
+            <div class="flex justify-between items-start mb-4 pl-2">
+                <div>
+                    <span class="text-slate-400 text-xs font-bold tracking-widest uppercase">Order</span>
+                    <h3 class="text-white text-xl font-black">#${o.id}</h3>
+                </div>
+                <div class="px-3 py-1 rounded-lg bg-${statusColor}-500/10 border border-${statusColor}-500/20 flex items-center gap-2">
+                    <i class="fa-solid ${isReady ? 'fa-check' : 'fa-fire animate-pulse'} text-${statusColor}-500 text-xs"></i>
+                    <span class="text-${statusColor}-500 text-xs font-bold uppercase tracking-wider">${o.status}</span>
+                </div>
+            </div>
+            <div class="pl-2 mb-6 flex-1">
+                <h4 class="text-2xl font-black text-white mb-3 leading-tight">${o.item}</h4>
+                <div class="bg-slate-800/50 rounded-xl p-3 border border-slate-700/50 text-slate-300 text-sm font-medium">
+                    <i class="fa-solid fa-utensils text-slate-500 mr-2"></i> ${o.details}
+                </div>
+            </div>
+            <div class="flex gap-3 pl-2 mt-auto">
+                ${!isReady ? `<button onclick="markAsReady('${o.id}')" class="flex-1 py-3.5 bg-slate-800 hover:bg-emerald-500 text-white rounded-xl font-black text-xs uppercase tracking-widest transition-all duration-300 border border-slate-700 hover:border-emerald-400 hover:shadow-[0_0_20px_rgba(16,185,129,0.4)]">Mark Ready</button>` : ''}
+                <button onclick="deliverOrder('${o.id}')" class="flex-1 py-3.5 ${isReady ? 'bg-orange-600 hover:bg-orange-500 text-white shadow-[0_0_20px_rgba(234,88,12,0.3)] border-orange-500' : 'bg-slate-800/50 text-slate-600 border-slate-800 pointer-events-none'} rounded-xl font-black text-xs uppercase tracking-widest transition-all duration-300 border">Delivered</button>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function updateNotifUI() {
+    const list = document.getElementById('notif-list'), active = orders.filter(o => !o.delivered);
+    document.getElementById('notif-badge').innerText = active.length;
+    document.getElementById('notif-badge').style.display = active.length ? 'flex' : 'none';
+    list.innerHTML = active.length ? active.map(o => `<div class="p-4 bg-slate-50 rounded-2xl border border-slate-100"><div class="flex justify-between font-bold text-xs"><span>${o.item}</span><span class="text-orange-600 uppercase">Active</span></div></div>`).join('') : '<p class="text-slate-400 text-center py-4">Empty</p>';
+}
+
+function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+// --- FIXED LOGIN & LOGOUT ---
+function checkAdminPass() { 
+    if(document.getElementById('admin-pass').value === "corevia12") { 
+        closeModal('admin-lock'); 
+        document.body.style.overflow = 'hidden'; 
+        // Reset all displays to avoid white screen clash
+        document.querySelectorAll('header, section, footer').forEach(el => el.style.display = '');
+        // Hide everything except admin panel
+        document.querySelectorAll('header, section:not(#admin-panel), footer').forEach(el => el.style.display = 'none');
+        document.getElementById('kitchen-panel').classList.add('hidden');
+        document.getElementById('admin-panel').classList.remove('hidden'); 
+        switchAdminTab('analytics'); // Default Tab
+        updateAdminUI(); 
+    } else alert("Password Galat Hai!"); 
+}
+
+function checkKitchenPass() { 
+    if(document.getElementById('staff-pass').value === "corevia") { 
+        closeModal('kitchen-lock'); 
+        document.body.style.overflow = 'hidden'; 
+        // Reset all displays to avoid white screen clash
+        document.querySelectorAll('header, section, footer').forEach(el => el.style.display = '');
+        // Hide everything except kitchen panel
+        document.querySelectorAll('header, section:not(#kitchen-panel), footer').forEach(el => el.style.display = 'none');
+        document.getElementById('admin-panel').classList.add('hidden');
+        document.getElementById('kitchen-panel').classList.remove('hidden'); 
+        updateKitchenUI(); 
+    } else alert("Password Galat Hai!"); 
+}
+
+function logout(id) { 
+    document.getElementById(id).classList.add('hidden'); 
+    document.body.style.overflow = 'auto'; 
+    // Wapas aate waqt saari cheezein show karao
+    document.querySelectorAll('header, section:not(#admin-panel, #kitchen-panel), footer').forEach(el => el.style.display = '');
+}
+
+async function markAsReady(id) { const o = orders.find(x => x.id === id); if(o) { o.status = 'Ready'; await fetch(`/api/orders/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({status: 'Ready'}) }); updateKitchenUI(); updateNotifUI(); } }
+async function deliverOrder(id) { const o = orders.find(x => x.id === id); if(o) { o.delivered = true; await fetch(`/api/orders/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({delivered: true}) }); updateKitchenUI(); updateNotifUI(); updateAdminUI(); } }
