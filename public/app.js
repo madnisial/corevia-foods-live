@@ -87,7 +87,7 @@ async function saveMenuItem() {
     const img = document.getElementById('m-img').value || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?q=80&w=400';
     const desc = document.getElementById('m-desc').value || 'Delicious food item.';
 
-    if(!name || !price) return alert("Name aur Price lazmi hain!");
+    if(!name || !price) return alert("Name and Price are required!");
     const newItem = { id: 'm' + Date.now(), name, category: cat, price, image: img, desc, available: true };
     await fetch('/api/menu', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newItem) });
     closeModal('add-menu-modal');
@@ -96,7 +96,7 @@ async function saveMenuItem() {
 }
 
 async function deleteMenuItem(id) {
-    if(confirm("Yeh item delete ho jayega. Confirm?")) {
+    if(confirm("This item will be deleted. Are you sure?")) {
         await fetch(`/api/menu/${id}`, { method: 'DELETE' });
         fetchMenu();
     }
@@ -137,11 +137,11 @@ async function confirmOrder() {
     let details = "Self Pickup";
     if(curFulfillment === 'Table') {
         const t = document.getElementById('f-table').value;
-        if(!t) return alert("Table Number lazmi hai!");
+        if(!t) return alert("Table Number is required!");
         details = "Table: " + t;
     } else if(curFulfillment === 'Delivery') {
         const n = document.getElementById('f-name').value, p = document.getElementById('f-phone').value, a = document.getElementById('f-addr').value;
-        if(!n || !p || !a) return alert("Saari details bharein!");
+        if(!n || !p || !a) return alert("Please fill in all details!");
         details = `Delivery | ${n} - ${p} - ${a}`;
     }
     
@@ -230,7 +230,7 @@ async function generateReceipt(o) {
 }
 function reprint(id) { const o = orders.find(x => x.id === id); if(o) generateReceipt(o); }
 
-// --- UPDATED MODERN KITCHEN LOGIC ---
+// --- KITCHEN LOGIC ---
 function updateKitchenUI() {
     const d = document.getElementById('kitchen-display');
     const stats = document.getElementById('kitchen-stats');
@@ -279,17 +279,45 @@ function updateKitchenUI() {
     }).join('');
 }
 
+// --- NOTIFICATION PANEL UPDATE ---
 function updateNotifUI() {
-    const list = document.getElementById('notif-list'), active = orders.filter(o => !o.delivered);
+    const list = document.getElementById('notif-list');
+    const active = orders.filter(o => !o.delivered); 
+    
     document.getElementById('notif-badge').innerText = active.length;
     document.getElementById('notif-badge').style.display = active.length ? 'flex' : 'none';
-    list.innerHTML = active.length ? active.map(o => `<div class="p-4 bg-slate-50 rounded-2xl border border-slate-100"><div class="flex justify-between font-bold text-xs"><span>${o.item}</span><span class="text-orange-600 uppercase">Active</span></div></div>`).join('') : '<p class="text-slate-400 text-center py-4">Empty</p>';
+    
+    if (active.length > 0) {
+        list.innerHTML = active.map(o => {
+            if (o.status === 'Ready') {
+                return `
+                <div class="p-4 bg-green-50 rounded-2xl border border-green-200">
+                    <div class="flex justify-between font-bold text-xs mb-1">
+                        <span class="text-slate-800">${o.item}</span>
+                        <span class="text-green-600 uppercase animate-pulse">Ready</span>
+                    </div>
+                    <p class="text-green-700 text-[11px] font-bold">Your order is ready. Enjoy your meal, thank you!</p>
+                </div>`;
+            } else {
+                return `
+                <div class="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                    <div class="flex justify-between font-bold text-xs mb-1">
+                        <span class="text-slate-800">${o.item}</span>
+                        <span class="text-orange-600 uppercase">Preparing</span>
+                    </div>
+                    <p class="text-slate-500 text-[11px]">Chef is preparing your food...</p>
+                </div>`;
+            }
+        }).join('');
+    } else {
+        list.innerHTML = '<p class="text-slate-400 text-center py-4">No active orders.</p>';
+    }
 }
 
 function openModal(id) { document.getElementById(id).style.display = 'flex'; }
 function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 
-// --- FIXED LOGIN & LOGOUT ---
+// --- FIXED LOGIN & LOGOUT (PREVENTS WHITE SCREEN CLASH) ---
 function checkAdminPass() { 
     if(document.getElementById('admin-pass').value === "corevia12") { 
         closeModal('admin-lock'); 
@@ -300,9 +328,9 @@ function checkAdminPass() {
         document.querySelectorAll('header, section:not(#admin-panel), footer').forEach(el => el.style.display = 'none');
         document.getElementById('kitchen-panel').classList.add('hidden');
         document.getElementById('admin-panel').classList.remove('hidden'); 
-        switchAdminTab('analytics'); // Default Tab
+        switchAdminTab('analytics'); 
         updateAdminUI(); 
-    } else alert("Password Galat Hai!"); 
+    } else alert("Incorrect Password!"); 
 }
 
 function checkKitchenPass() { 
@@ -316,13 +344,13 @@ function checkKitchenPass() {
         document.getElementById('admin-panel').classList.add('hidden');
         document.getElementById('kitchen-panel').classList.remove('hidden'); 
         updateKitchenUI(); 
-    } else alert("Password Galat Hai!"); 
+    } else alert("Incorrect Password!"); 
 }
 
 function logout(id) { 
     document.getElementById(id).classList.add('hidden'); 
     document.body.style.overflow = 'auto'; 
-    // Wapas aate waqt saari cheezein show karao
+    // Restore all default views
     document.querySelectorAll('header, section:not(#admin-panel, #kitchen-panel), footer').forEach(el => el.style.display = '');
 }
 
