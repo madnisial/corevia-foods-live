@@ -9,6 +9,7 @@ window.addEventListener('load', () => {
 document.addEventListener("DOMContentLoaded", () => {
     fetchMenu();
     fetchOrders(); 
+    // Auto-refresh orders every 3 seconds
     setInterval(fetchOrders, 3000); 
     reveal();
 });
@@ -36,14 +37,24 @@ let curFulfillment = 'Pick';
 let curItem = '';
 let curPrice = 0;
 
-// --- MENU LOGIC ---
-async function fetchMenu() {
-    try {
-        const res = await fetch('/api/menu');
-        dbMenu = await res.json();
-        renderWebsiteMenu();
-        renderAdminMenu();
-    } catch(e) { console.log("Menu Error"); }
+// --- DEFAULT MENU ITEMS ---
+const defaultMenu = [
+    { id: 'm1', name: 'Zinger Burger', category: 'Fast Food', price: 450, image: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?q=80&w=400', desc: 'Crispy chicken with secret sauce.', available: true },
+    { id: 'm2', name: 'Fajita Pizza', category: 'Pizza', price: 1200, image: 'https://images.unsplash.com/photo-1513104890138-7c749659a591?q=80&w=400', desc: 'Loaded with cheese and chicken fajita.', available: true },
+    { id: 'm3', name: 'Loaded Fries', category: 'Snacks', price: 350, image: 'https://images.unsplash.com/photo-1576107232684-1279f3908594?q=80&w=400', desc: 'Fries topped with melted cheese and jalapenos.', available: true }
+];
+
+// --- MENU LOGIC (UPDATED FOR LOCAL STORAGE) ---
+function fetchMenu() {
+    const storedMenu = localStorage.getItem('corevia_menu');
+    if (storedMenu) {
+        dbMenu = JSON.parse(storedMenu);
+    } else {
+        dbMenu = defaultMenu;
+        localStorage.setItem('corevia_menu', JSON.stringify(dbMenu));
+    }
+    renderWebsiteMenu();
+    renderAdminMenu();
 }
 
 function renderWebsiteMenu() {
@@ -80,7 +91,7 @@ function renderAdminMenu() {
     `).reverse().join('');
 }
 
-async function saveMenuItem() {
+function saveMenuItem() {
     const name = document.getElementById('m-name').value;
     const cat = document.getElementById('m-cat').value;
     const price = parseInt(document.getElementById('m-price').value);
@@ -88,33 +99,42 @@ async function saveMenuItem() {
     const desc = document.getElementById('m-desc').value || 'Delicious food item.';
 
     if(!name || !price) return alert("Name and Price are required!");
+    
     const newItem = { id: 'm' + Date.now(), name, category: cat, price, image: img, desc, available: true };
-    await fetch('/api/menu', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newItem) });
+    dbMenu.push(newItem);
+    localStorage.setItem('corevia_menu', JSON.stringify(dbMenu));
+    
     closeModal('add-menu-modal');
     document.querySelectorAll('#add-menu-modal input, #add-menu-modal textarea').forEach(i => i.value = '');
     fetchMenu();
 }
 
-async function deleteMenuItem(id) {
+function deleteMenuItem(id) {
     if(confirm("This item will be deleted. Are you sure?")) {
-        await fetch(`/api/menu/${id}`, { method: 'DELETE' });
+        dbMenu = dbMenu.filter(m => m.id !== id);
+        localStorage.setItem('corevia_menu', JSON.stringify(dbMenu));
         fetchMenu();
     }
 }
 
-async function toggleAvailability(id, state) {
-    await fetch(`/api/menu/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({available: state}) });
-    fetchMenu();
+function toggleAvailability(id, state) {
+    const item = dbMenu.find(m => m.id === id);
+    if(item) {
+        item.available = state;
+        localStorage.setItem('corevia_menu', JSON.stringify(dbMenu));
+        fetchMenu();
+    }
 }
 
-// --- ORDERS LOGIC ---
-async function fetchOrders() {
-    try {
-        const res = await fetch('/api/orders');
-        const data = await res.json();
-        if (Array.isArray(data)) orders = data;
-        updateKitchenUI(); updateAdminUI(); updateNotifUI();
-    } catch(err) { console.log("DB Load Error"); }
+// --- ORDERS LOGIC (UPDATED FOR LOCAL STORAGE) ---
+function fetchOrders() {
+    const storedOrders = localStorage.getItem('corevia_orders');
+    if (storedOrders) {
+        orders = JSON.parse(storedOrders);
+    }
+    updateKitchenUI(); 
+    updateAdminUI(); 
+    updateNotifUI();
 }
 
 function openOrderModal(name, price) {
@@ -149,15 +169,12 @@ async function confirmOrder() {
     const pay = document.getElementById('payment-method').value;
     const order = { id, item: curItem, price: curPrice, fulfillment: curFulfillment, details, payment: pay, status: 'Preparing', delivered: false, date: new Date().toLocaleString() };
     
-    try {
-        const response = await fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(order) });
-        if(response.ok) {
-            orders.push(order);
-            closeModal('order-modal');
-            updateKitchenUI(); updateAdminUI(); updateNotifUI();
-            await generateReceipt(order);
-        }
-    } catch (error) { alert("Connection Error."); }
+    orders.push(order);
+    localStorage.setItem('corevia_orders', JSON.stringify(orders));
+    
+    closeModal('order-modal');
+    fetchOrders();
+    await generateReceipt(order);
 }
 
 // --- ADMIN LOGIC ---
@@ -317,14 +334,11 @@ function updateNotifUI() {
 function openModal(id) { document.getElementById(id).style.display = 'flex'; }
 function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 
-// --- FIXED LOGIN & LOGOUT (PREVENTS WHITE SCREEN CLASH) ---
 function checkAdminPass() { 
     if(document.getElementById('admin-pass').value === "corevia12") { 
         closeModal('admin-lock'); 
         document.body.style.overflow = 'hidden'; 
-        // Reset all displays to avoid white screen clash
         document.querySelectorAll('header, section, footer').forEach(el => el.style.display = '');
-        // Hide everything except admin panel
         document.querySelectorAll('header, section:not(#admin-panel), footer').forEach(el => el.style.display = 'none');
         document.getElementById('kitchen-panel').classList.add('hidden');
         document.getElementById('admin-panel').classList.remove('hidden'); 
@@ -337,9 +351,7 @@ function checkKitchenPass() {
     if(document.getElementById('staff-pass').value === "corevia") { 
         closeModal('kitchen-lock'); 
         document.body.style.overflow = 'hidden'; 
-        // Reset all displays to avoid white screen clash
         document.querySelectorAll('header, section, footer').forEach(el => el.style.display = '');
-        // Hide everything except kitchen panel
         document.querySelectorAll('header, section:not(#kitchen-panel), footer').forEach(el => el.style.display = 'none');
         document.getElementById('admin-panel').classList.add('hidden');
         document.getElementById('kitchen-panel').classList.remove('hidden'); 
@@ -350,9 +362,23 @@ function checkKitchenPass() {
 function logout(id) { 
     document.getElementById(id).classList.add('hidden'); 
     document.body.style.overflow = 'auto'; 
-    // Restore all default views
     document.querySelectorAll('header, section:not(#admin-panel, #kitchen-panel), footer').forEach(el => el.style.display = '');
 }
 
-async function markAsReady(id) { const o = orders.find(x => x.id === id); if(o) { o.status = 'Ready'; await fetch(`/api/orders/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({status: 'Ready'}) }); updateKitchenUI(); updateNotifUI(); } }
-async function deliverOrder(id) { const o = orders.find(x => x.id === id); if(o) { o.delivered = true; await fetch(`/api/orders/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({delivered: true}) }); updateKitchenUI(); updateNotifUI(); updateAdminUI(); } }
+function markAsReady(id) { 
+    const o = orders.find(x => x.id === id); 
+    if(o) { 
+        o.status = 'Ready'; 
+        localStorage.setItem('corevia_orders', JSON.stringify(orders));
+        fetchOrders(); 
+    } 
+}
+
+function deliverOrder(id) { 
+    const o = orders.find(x => x.id === id); 
+    if(o) { 
+        o.delivered = true; 
+        localStorage.setItem('corevia_orders', JSON.stringify(orders));
+        fetchOrders(); 
+    } 
+}
