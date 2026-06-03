@@ -1,13 +1,15 @@
 // --- 1. FIREBASE SETUP ---
 const firebaseConfig = {
-    apiKey: "AIzaSyB9yd4b2CaqANumo4nqDKiuhxplZCpveeY",
-    authDomain: "corevia-live.firebaseapp.com",
-    databaseURL: "https://corevia-live-default-rtdb.firebaseio.com", 
-    projectId: "corevia-live",
-    storageBucket: "corevia-live.firebasestorage.app",
-    messagingSenderId: "989531132432",
-    appId: "1:989531132432:web:61e3f8429e56049b83f095"
+    apiKey: "AIzaSyB8aBEDtI-QL2JEac3UMpLQuQaxZvOxvf0",
+    authDomain: "corevia-foods.firebaseapp.com",
+    databaseURL: "https://corevia-foods-default-rtdb.firebaseio.com",
+    projectId: "corevia-foods",
+    storageBucket: "corevia-foods.firebasestorage.app",
+    messagingSenderId: "1046185487306",
+    appId: "1:1046185487306:web:90978731bc902badaf3d33"
 };
+
+// Initialize Firebase
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
@@ -178,7 +180,7 @@ async function confirmOrder() {
     db.ref('orders/' + id).set(order);
     
     closeModal('order-modal');
-    await generateReceipt(order);
+    await generateReceipt(order); // Assuming you have this function in your original code
 }
 
 // Kitchen Actions
